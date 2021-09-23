@@ -164,6 +164,75 @@ class Jwt_Auth_Public
         /** Let the user modify the data before send it back */
         return apply_filters('jwt_auth_token_before_dispatch', $data, $user);
     }
+    
+    /**
+     * Get the user and password in the request body and generate a JWT
+     *
+     * @param [type] $request [description]
+     *
+     * @return [type] [description]
+     */
+    public function generate_token_with_email($request)
+    {
+        $secret_key = defined('JWT_AUTH_SECRET_KEY') ? JWT_AUTH_SECRET_KEY : false;
+        $username = $request->get_param('username');
+
+        /** First thing, check the secret key if not exist return a error*/
+        if (!$secret_key) {
+            return new WP_Error(
+                'jwt_auth_bad_config',
+                __('JWT is not configurated properly, please contact the admin', 'wp-api-jwt-auth'),
+                array(
+                    'status' => 403,
+                )
+            );
+        }
+
+        /** Try to authenticate the user with the passed credentials*/
+        $user = get_user_by('email', $username);
+
+        if(!$user) {
+            $error_code = $user->get_error_code();
+            return new WP_Error(
+                '[jwt_auth] ' . $error_code,
+                $user->get_error_message($error_code),
+                array(
+                    'status' => 403,
+                )
+            );
+        }
+
+        /** Valid credentials, the user exists create the according Token */
+        $issuedAt = time();
+        $notBefore = apply_filters('jwt_auth_not_before', $issuedAt, $issuedAt);
+        $expire = apply_filters('jwt_auth_expire', $issuedAt + (DAY_IN_SECONDS * 7), $issuedAt);
+
+        $token = array(
+            'iss' => get_bloginfo('url'),
+            'iat' => $issuedAt,
+            'nbf' => $notBefore,
+            'exp' => $expire,
+            'data' => array(
+                'user' => array(
+                    'id' => $user->data->ID,
+                ),
+            ),
+        );
+
+        /** Let the user modify the token data before the sign. */
+        $token = JWT::encode(apply_filters('jwt_auth_token_before_sign', $token, $user), $secret_key);
+
+        /** The token is signed, now create the object with no sensible user data to the client*/
+        $data = array(
+            'token' => $token,
+            'user_email' => $user->data->user_email,
+            'user_nicename' => $user->data->user_nicename,
+            'user_display_name' => $user->data->display_name,
+        );
+
+        /** Let the user modify the data before send it back */
+        return apply_filters('jwt_auth_token_before_dispatch', $data, $user);
+    }
 
     /**
      * This is our Middleware to try to authenticate the user according to the
